@@ -41,7 +41,6 @@ Thumbs.db
 /frontend/.svelte-kit/
 /frontend/build/
 /frontend/dist/
-
 # Logs and environment variables
 /frontend/npm-debug.log*
 /frontend/yarn-debug.log*
