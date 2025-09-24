@@ -1,3 +1,5 @@
+// Package qos is the business logic layer for QoS management.
+// It acts as a bridge between the HTTP server and the underlying providers.
 package qos
 
 import (
@@ -8,7 +10,7 @@ import (
 
 // Manager is responsible for applying and managing QoS rules.
 type Manager struct {
-	// In the future, we could have dependencies here, like a logger.
+	// This struct is a placeholder for any future dependencies, like a logger.
 }
 
 // NewManager creates a new QoS Manager.
@@ -16,21 +18,23 @@ func NewManager() *Manager {
 	return &Manager{}
 }
 
-// ApplyRule applies a given QoS rule.
+// ApplyRule applies a given QoS rule by dispatching to the correct provider.
 func (m *Manager) ApplyRule(rule Rule) error {
-	// This is the core logic: dispatching to the correct provider.
 	switch rule.Algorithm {
 	case CAKE:
-		// We extract the specific settings needed for CAKE
-		bandwidthMbit, ok := rule.Settings["bandwidth_mbit"].(float64) // JSON numbers are float64
+		// Extract settings required for the CAKE provider.
+		// JSON numbers are decoded as float64, so we must handle that type.
+		bandwidthMbitFloat, ok := rule.Settings["bandwidth_mbit"].(float64)
 		if !ok {
-			return fmt.Errorf("bandwidth_mbit is required for CAKE algorithm and must be a number")
+			return fmt.Errorf("setting 'bandwidth_mbit' is required for CAKE and must be a number")
 		}
-		// and call the specific CAKE provider.
-		return providers.ApplyCake(rule.Interface, uint32(bandwidthMbit))
+		// The provider function expects a uint32.
+		return providers.ApplyCake(rule.Interface, uint32(bandwidthMbitFloat))
+
+	// Future algorithms can be added here.
 	// case FQ_CODEL:
-	//     // Future implementation would go here
 	//     return providers.ApplyFqCodel(...)
+
 	default:
 		return fmt.Errorf("unsupported QoS algorithm: %s", rule.Algorithm)
 	}
@@ -38,13 +42,29 @@ func (m *Manager) ApplyRule(rule Rule) error {
 
 // DeleteRule removes the QoS rule from a given interface.
 func (m *Manager) DeleteRule(ifaceName string) error {
-	// For now, we assume deleting is provider-agnostic, but we could
-	// add logic here if different algorithms need different cleanup.
+	// This delegates directly to the provider.
 	return providers.DeleteRootQdisc(ifaceName)
 }
 
-// GetRule fetches the current QoS rule for a given interface. (Not implemented yet)
+// GetRule fetches the current QoS rule from the system and assembles it into a Rule struct.
 func (m *Manager) GetRule(ifaceName string) (*Rule, error) {
-	// TODO: Implement the logic to read from netlink and construct a Rule.
-	return nil, fmt.Errorf("GetRule not implemented yet")
+	// 1. Get raw data from the provider. The provider doesn't know about our Rule struct.
+	algo, settings, err := providers.GetCurrentRule(ifaceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current rule from provider: %w", err)
+	}
+
+	// If the algorithm string is empty, it means no rule was found.
+	if algo == "" {
+		return nil, nil
+	}
+
+	// 2. It is the manager's responsibility to assemble the raw data into the structured Rule.
+	rule := &Rule{
+		Interface: ifaceName,
+		Algorithm: Algorithm(algo),
+		Settings:  settings,
+	}
+
+	return rule, nil
 }
