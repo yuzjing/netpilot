@@ -21,25 +21,6 @@ A simple, modern Web UI for managing Linux Traffic Control (QoS) with the **CAKE
 *   **Backend**: Go (using the Netlink API)
 *   **Frontend**: SvelteKit + Tailwind CSS
 
-## 🚀 Getting Started (Development)
-
-**Prerequisites:**
-*   Go (1.25+)
-*   Node.js (24+) with pnpm
-
-**Backend:**
-```bash
-cd backend
-go run cmd/netpilot/main.go
-```
-
-**Frontend:**
-```bash
-cd frontend
-pnpm install
-pnpm run dev
-```
-
 ## 📜 License
 
 This project is licensed under the [MIT License](LICENSE).

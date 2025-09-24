@@ -23,22 +23,4 @@
 *   **后端**: Go (使用Netlink API)
 *   **Frontend**: SvelteKit + Tailwind CSS
 
-## 🚀 快速开始 (开发环境)
-
-**前提条件:**
-*   Go (1.25+)
-*   Node.js (24+) with pnpm
-
-**后端:**
-```bash
-cd backend
-go run cmd/netpilot/main.go
-```
-
-**前端:**
-```bash
-cd frontend
-pnpm install
-pnpm run dev
-````
-  
+ 
