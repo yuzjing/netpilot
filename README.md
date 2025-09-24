@@ -24,8 +24,8 @@ A simple, modern Web UI for managing Linux Traffic Control (QoS) with the **CAKE
 ## 🚀 Getting Started (Development)
 
 **Prerequisites:**
-*   Go (1.21+)
-*   Node.js (18.x+) with pnpm
+*   Go (1.25+)
+*   Node.js (24+) with pnpm
 
 **Backend:**
 ```bash
