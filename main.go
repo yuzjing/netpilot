@@ -25,9 +25,20 @@ var embeddedFiles embed.FS
 
 func main() {
 	// Create a sub-filesystem for our static assets.
-	staticFS, err := fs.Sub(embeddedFiles, "frontend/build")
-	if err != nil {
-		log.Fatal(err)
+	var staticFS fs.FS
+	if os.Getenv("NETPILOT_DEV_MODE") != "true" {
+		// --- PRODUCTION MODE ---
+		// If not in dev mode, we embed the files.
+		fmt.Println("Running in PRODUCTION mode. Serving UI.")
+		subFS, err := fs.Sub(embeddedFiles, "frontend/build")
+		if err != nil {
+			log.Fatal(err)
+		}
+		staticFS = subFS
+	} else {
+		// --- DEVELOPMENT MODE ---
+		fmt.Println("Running in DEVELOPMENT mode. API only.")
+		// staticFS remains nil.
 	}
 
 	// Create components and inject dependencies.

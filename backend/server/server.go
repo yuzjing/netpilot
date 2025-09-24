@@ -40,12 +40,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // registerRoutes is the central place where all API endpoints are defined.
 func (s *Server) registerRoutes() {
 
-	fileServer := http.FileServer(http.FS(s.staticFS))
-
 	s.router.HandleFunc("/api/qos/rules", s.qosRuleHandler())
 	s.router.HandleFunc("/api/ping", s.pingHandler())
 	s.router.HandleFunc("/api/interfaces", s.interfacesHandler())
-	s.router.HandleFunc("/", fileServer.ServeHTTP)
+
+	if s.staticFS != nil {
+		fileServer := http.FileServer(http.FS(s.staticFS))
+		s.router.HandleFunc("/", fileServer.ServeHTTP)
+	}
 }
 
 // qosRuleHandler is a master handler that routes different HTTP methods
