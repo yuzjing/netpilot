@@ -1,5 +1,5 @@
 # ===================================================================
-# General
+# General & OS Specific
 # ===================================================================
 # OS-generated files
 .DS_Store
@@ -20,27 +20,30 @@ Thumbs.db
 *.sw?
 
 # ===================================================================
-# Go Backend (./backend/)
+# Go Specific (at project root)
 # ===================================================================
-# Compiled binary
-/backend/netpilot
-/backend/*.exe
+# Compiled binary at the root for production/testing
+# This is our main distribution file.
+/netpilot
+/netpilot.exe
 
 # Test artifacts
-/backend/*.test
-/backend/*.out
-/backend/coverage.txt
+*.test
+*.out
+coverage.txt
 
-# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-# SvelteKit Frontend (./frontend/)
+# ===================================================================
+# SvelteKit Frontend (in /frontend directory)
 # ===================================================================
 # Node dependencies
 /frontend/node_modules/
 
 # SvelteKit build artifacts and caches
-/frontend/.svelte-kit/
+# The 'build' directory is now our final static output, which we *do not* want in git.
+# The Go binary embeds it at build time.
 /frontend/build/
-/frontend/dist/
+/frontend/.svelte-kit/
+
 # Logs and environment variables
 /frontend/npm-debug.log*
 /frontend/yarn-debug.log*
@@ -48,6 +51,3 @@ Thumbs.db
 /frontend/.pnpm-debug.log*
 /frontend/.env
 /frontend/.env*.local
-/frontend/.env.development.local
-/frontend/.env.test.local
-/frontend/.env.production.local
