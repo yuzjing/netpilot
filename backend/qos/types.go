@@ -6,9 +6,11 @@ type Algorithm string
 
 const (
 	// CAKE is the "Common Applications Kept Enhanced" algorithm.
-	CAKE Algorithm = "cake"
-	// FQ_CODEL will be supported in the future.
-	// FQ_CODEL Algorithm = "fq_codel"
+	CAKE       Algorithm = "cake"
+	FQ_CODEL   Algorithm = "fq_codel"
+	TBF        Algorithm = "tbf"
+	SFQ        Algorithm = "sfq"
+	PFIFO_FAST Algorithm = "pfifo_fast"
 )
 
 // Settings contains all the parameters for a specific QoS rule.

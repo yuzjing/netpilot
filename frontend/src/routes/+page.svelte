@@ -2,64 +2,53 @@
   import { onMount } from 'svelte';
 
   // --- State Management ---
-  // We use a single object to hold the UI's state for clarity.
   let status = {
     isLoading: true,
     message: 'Initializing...',
     isError: false,
-    rule: null, // This will hold the active QoS rule object if it exists
+    rule: null,
   };
   
   // --- Form Inputs ---
   let selectedInterface = '';
   let inputBandwidth = 50;
   let availableInterfaces = [];
+  
+  let selectedAlgorithm = 'cake';
+  const algorithms = [
+    { value: 'cake',       label: 'CAKE (Recommended)',   needsBandwidth: true },
+    { value: 'fq_codel',   label: 'FQ Codel',             needsBandwidth: false },
+    { value: 'sfq',        label: 'SFQ (Stochastic Fairness)', needsBandwidth: false },
+    { value: 'tbf',        label: 'TBF (Simple Rate Limiter)',  needsBandwidth: true },
+  ];
+
+  let showAdvanced = false;
 
   // --- API Functions ---
 
-  async function fetchInterfaces() {
-    try {
-      const response = await fetch('http://localhost:8080/api/interfaces');
-      if (!response.ok) {
-        throw new Error(`Failed to fetch interfaces: ${response.statusText}`);
-      }
-      
-      availableInterfaces = await response.json();
-      
-      if (availableInterfaces.length > 0) {
-        // Automatically select the first interface found
-        selectedInterface = availableInterfaces[0];
-      } else {
-        // Handle the case where no network interfaces are found
-        status = { isLoading: false, message: 'No suitable network interfaces found.', isError: true, rule: null };
-      }
-    } catch (error) {
-      console.error('Fetch Interfaces Error:', error);
-      status = { isLoading: false, message: error.message, isError: true, rule: null };
-    }
-  }
-
-  async function fetchRuleForInterface(iface) {
+  async function querySystemState(iface) {
     if (!iface) return;
-
     status = { isLoading: true, message: `Checking status for ${iface}...`, isError: false, rule: null };
-    
     try {
-      const response = await fetch(`http://localhost:8080/api/qos/rules?interface=${iface}`);
-      
-      if (response.status === 204) {
-        // 204 No Content is a success signal that means no rule is currently set.
-        status = { isLoading: false, message: `No active QoS rule on ${iface}.`, isError: false, rule: null };
-      } else if (response.ok) {
-        const rule = await response.json();
-        status = { isLoading: false, message: `Active rule found on ${iface}.`, isError: false, rule: rule };
-        // Update the input box to reflect the current setting
-        if (rule.settings && rule.settings.bandwidth) {
-          inputBandwidth = parseInt(rule.settings.bandwidth) || 50;
-        }
-      } else {
+      const response = await fetch(`/api/qos/rules?interface=${iface}`);
+      if (!response.ok && response.status !== 204) {
         const errorText = await response.text();
         throw new Error(`API Error: ${response.status} - ${errorText}`);
+      }
+      
+      if (response.status === 204) {
+        status = { isLoading: false, message: `No active rule managed by NetPilot on ${iface}. System default is likely active.`, isError: false, rule: null };
+      } else {
+        const rule = await response.json();
+        status = { isLoading: false, message: `Active rule found on ${iface}.`, isError: false, rule: rule };
+        if (rule.algorithm && algorithms.some(a => a.value === rule.algorithm)) {
+          selectedAlgorithm = rule.algorithm;
+        }
+        if (rule.settings && rule.settings.bandwidth) {
+          inputBandwidth = parseInt(rule.settings.bandwidth) || 50;
+        } else if (rule.settings && rule.settings.rate) {
+          inputBandwidth = parseInt(rule.settings.rate) || 50;
+        }
       }
     } catch (error) {
       console.error('Fetch Rule Error:', error);
@@ -68,150 +57,157 @@
   }
 
   async function applyRule() {
-    if (!selectedInterface || !inputBandwidth || inputBandwidth <= 0) {
-      status = { isLoading: false, message: 'Interface and a positive bandwidth are required.', isError: true, rule: status.rule };
-      return;
+    if (!selectedInterface) return;
+    const currentAlgo = algorithms.find(a => a.value === selectedAlgorithm);
+    if (currentAlgo && currentAlgo.needsBandwidth && (!inputBandwidth || inputBandwidth <= 0)) {
+       status = { ...status, isLoading: false, message: 'A positive bandwidth is required.', isError: true };
+       return;
     }
-
-    status = { isLoading: true, message: `Applying ${inputBandwidth}Mbit rule to ${selectedInterface}...`, isError: false, rule: status.rule };
-    
+    status = { isLoading: true, message: `Applying ${selectedAlgorithm} rule...`, isError: false, rule: status.rule };
     try {
-      const response = await fetch('http://localhost:8080/api/qos/rules', {
+      const response = await fetch('/api/qos/rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           interface: selectedInterface,
-          algorithm: 'cake',
+          algorithm: selectedAlgorithm,
           settings: { bandwidth_mbit: Number(inputBandwidth) },
         }),
       });
-      
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Failed to apply rule');
-
-      // After applying, immediately refresh the status to show the new state
-      await fetchRuleForInterface(selectedInterface);
+      await querySystemState(selectedInterface);
     } catch (error) {
       console.error('Apply Rule Error:', error);
       status = { isLoading: false, message: error.message, isError: true, rule: null };
     }
   }
 
-  async function deleteRule() {
+  async function resetToDefault() {
     if (!selectedInterface) return;
-
-    status = { isLoading: true, message: `Deleting rule from ${selectedInterface}...`, isError: false, rule: status.rule };
-    
+    status = { isLoading: true, message: `Resetting QoS on ${selectedInterface}...`, isError: false, rule: status.rule };
     try {
-      const response = await fetch(`http://localhost:8080/api/qos/rules?interface=${selectedInterface}`, {
-        method: 'DELETE',
-      });
-
+      const response = await fetch(`/api/qos/rules?interface=${selectedInterface}`, { method: 'DELETE' });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Failed to delete rule');
-      
-      // After deleting, immediately refresh the status
-      await fetchRuleForInterface(selectedInterface);
+      await querySystemState(selectedInterface);
     } catch (error) {
       console.error('Delete Rule Error:', error);
       status = { isLoading: false, message: error.message, isError: true, rule: null };
     }
   }
-
+  
   // --- Lifecycle & Reactivity ---
-
-  // When the component is first mounted in the browser, run the full initialization sequence.
   onMount(async () => {
-    await fetchInterfaces();
-    // After interfaces are fetched, the selectedInterface will be set,
-    // which will then trigger the reactive statement below to fetch the rule.
+    status = { isLoading: true, message: 'Fetching network interfaces...', isError: false, rule: null };
+    try {
+      const response = await fetch('/api/interfaces');
+      if (!response.ok) throw new Error('Failed to fetch interfaces');
+      availableInterfaces = await response.json();
+      if (availableInterfaces.length > 0) {
+        selectedInterface = availableInterfaces[0];
+      } else {
+        status = { isLoading: false, message: 'No network interfaces found.', isError: true, rule: null };
+      }
+    } catch (error) {
+      console.error('Fetch Interfaces Error:', error);
+      status = { isLoading: false, message: error.message, isError: true, rule: null };
+    }
   });
   
-  // This reactive statement triggers whenever `selectedInterface` changes.
-  // This handles both the initial setting in onMount and subsequent user selections.
   $: if (selectedInterface) {
-      fetchRuleForInterface(selectedInterface);
+    querySystemState(selectedInterface);
   }
 
 </script>
 
 <main class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-  <div class="w-full max-w-lg bg-white rounded-xl shadow-lg p-8 space-y-6">
+  <div class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-8 space-y-6">
     
     <header class="text-center">
-      <h1 class="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">
-        ✈️ NetPilot
-      </h1>
-      <p class="text-gray-500 mt-1">CAKE QoS Control Panel</p>
+      <h1 class="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">✈️ NetPilot</h1>
+      <p class="text-gray-500 mt-1">Linux QoS Control Panel</p>
     </header>
 
     <div class="border-t"></div>
 
     <!-- Configuration Section -->
     <section class="space-y-4">
+      <!-- ... (The form is complete and correct) ... -->
       <div>
         <label for="interface-select" class="block text-sm font-medium text-gray-700">Network Interface</label>
-        <select 
-          id="interface-select" 
-          bind:value={selectedInterface} 
-          class="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500" 
-          disabled={availableInterfaces.length === 0}
-        >
-          {#if availableInterfaces.length === 0}
-            <option value="">-- Loading interfaces... --</option>
-          {:else}
-            <option disabled value="">-- Select an interface --</option>
-            {#each availableInterfaces as iface}
-              <option value={iface}>{iface}</option>
-            {/each}
-          {/if}
+        <select id="interface-select" bind:value={selectedInterface} class="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 rounded-md" disabled={availableInterfaces.length === 0}>
+            {#if availableInterfaces.length === 0}<option value="">Loading...</option>{:else}{#each availableInterfaces as iface}<option value={iface}>{iface}</option>{/each}{/if}
         </select>
       </div>
-
       <div>
-        <label for="bandwidth-input" class="block text-sm font-medium text-gray-700">Bandwidth (Mbit/s)</label>
-        <input 
-          type="number" 
-          id="bandwidth-input" 
-          bind:value={inputBandwidth} 
-          class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" 
-          min="1"
-        >
+        <label for="algorithm-select" class="block text-sm font-medium text-gray-700">QoS Algorithm to Apply</label>
+        <select id="algorithm-select" bind:value={selectedAlgorithm} class="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 rounded-md">
+          {#each algorithms as algo}<option value={algo.value}>{algo.label}</option>{/each}
+        </select>
       </div>
+      {#if algorithms.find(a => a.value === selectedAlgorithm)?.needsBandwidth}
+        <div>
+          <label for="bandwidth-input" class="block text-sm font-medium text-gray-700">Bandwidth (Mbit/s)</label>
+          <input type="number" id="bandwidth-input" bind:value={inputBandwidth} class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md" min="1">
+        </div>
+      {/if}
+      <div class="relative flex items-start pt-2">
+        <div class="flex items-center h-5">
+          <input id="advanced-toggle" type="checkbox" bind:checked={showAdvanced} class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded">
+        </div>
+        <div class="ml-3 text-sm">
+          <label for="advanced-toggle" class="font-medium text-gray-700">Show Advanced Options</label>
+        </div>
+      </div>
+      {#if showAdvanced}
+        <div class="mt-4 p-4 border-l-4 border-yellow-400 bg-yellow-50"><p class="text-sm text-yellow-700">Advanced options are not yet implemented.</p></div>
+      {/if}
     </section>
 
     <!-- Status & Actions Section -->
-    <section class="bg-gray-50 p-4 rounded-lg min-h-[120px] flex flex-col justify-center">
-      <h3 class="text-center font-semibold text-gray-700 mb-2">Status</h3>
-      <div class="text-center text-sm">
+    <section class="bg-gray-50 p-4 rounded-lg min-h-[150px] flex flex-col justify-center">
+      <h3 class="text-center font-semibold text-gray-700 mb-3">Current System Status on {selectedInterface || '...'}</h3>
+      <div class="text-left text-sm">
         {#if status.isLoading}
-          <p class="text-yellow-600">{status.message}</p>
+          <p class="text-center text-yellow-600">{status.message}</p>
         {:else if status.isError}
-          <p class="text-red-600 font-semibold">{status.message}</p>
-        {:else if status.rule}
-          <div class="text-green-700 space-y-1">
-            <p>Active rule found on <strong>{status.rule.interface}</strong>.</p>
-            <p>Bandwidth is set to <strong>{status.rule.settings.bandwidth}</strong>.</p>
+          <p class="text-center text-red-600 font-semibold">{status.message}</p>
+        {:else if status.rule && status.rule.algorithm}
+          <div class="space-y-2">
+            <div class="flex items-center">
+              <span class="w-28 font-semibold text-gray-600">Algorithm:</span>
+              <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
+                {status.rule.algorithm}
+              </span>
+            </div>
+            {#if status.rule.settings && Object.keys(status.rule.settings).length > 0}
+              <div class="pt-2">
+                <h4 class="font-semibold text-gray-600 mb-1">Parameters:</h4>
+                <div class="pl-4 border-l-2 border-gray-200 space-y-1">
+                  {#each Object.entries(status.rule.settings) as [key, value]}
+                    <div class="flex items-baseline">
+                      <span class="w-24 text-gray-500 capitalize">{key.replace('_', ' ')}:</span>
+                      <code class="text-indigo-700">{value}</code>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           </div>
         {:else}
-          <p class="text-blue-700">{status.message}</p>
+          <p class="text-center text-blue-700">{status.message || `System default is active.`}</p>
         {/if}
       </div>
     </section>
-
-    <!-- Buttons are now shown based on the status -->
-    <section class="pt-2">
-      {#if !status.isLoading}
-        {#if status.rule}
-          <button on:click={deleteRule} class="w-full py-2 px-4 rounded-md font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-            Delete Rule
-          </button>
-        {:else if !status.isError}
-          <button on:click={applyRule} class="w-full py-2 px-4 rounded-md font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            Apply Rule
-          </button>
-        {/if}
-      {/if}
+    
+    <section class="pt-2 flex flex-col sm:flex-row gap-3">
+      <button on:click={applyRule} class="w-full py-2 px-4 rounded-md font-medium text-white bg-indigo-600 hover:bg-indigo-700" disabled={status.isLoading}>
+        Apply '{selectedAlgorithm}'
+      </button>
+      <button on:click={resetToDefault} class="w-full py-2 px-4 rounded-md font-medium text-white bg-gray-500 hover:bg-gray-600" disabled={status.isLoading || !status.rule}>
+        Reset to Default
+      </button>
     </section>
 
   </div>
