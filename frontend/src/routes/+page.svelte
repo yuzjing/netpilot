@@ -2,29 +2,18 @@
   import { onMount } from 'svelte';
 
   // --- State Management ---
-  let status = {
-    isLoading: true,
-    message: 'Initializing...',
-    isError: false,
-    rule: null,
-  };
-  
-  // --- Form Inputs ---
-  let selectedInterface = '';
-  let inputBandwidth = 50;
-  let availableInterfaces = [];
-  
+  let status = { isLoading: true, message: 'Initializing...', isError: false, rule: null };
+  let selectedInterface = '', inputBandwidth = 50, availableInterfaces = [];
   let selectedAlgorithm = 'cake';
   const algorithms = [
-    { value: 'cake',       label: 'CAKE (Recommended)',   needsBandwidth: true },
-    { value: 'fq_codel',   label: 'FQ Codel',             needsBandwidth: false },
-    { value: 'sfq',        label: 'SFQ (Stochastic Fairness)', needsBandwidth: false },
-    { value: 'tbf',        label: 'TBF (Simple Rate Limiter)',  needsBandwidth: true },
+    { value: 'cake', label: 'CAKE (Recommended)', needsBandwidth: true },
+    { value: 'fq_codel', label: 'FQ Codel', needsBandwidth: false },
+    { value: 'sfq', label: 'SFQ (Stochastic Fairness)', needsBandwidth: false },
+    { value: 'tbf', label: 'TBF (Simple Rate Limiter)', needsBandwidth: true },
   ];
-
   let showAdvanced = false;
 
-  // --- API Functions ---
+  // --- API Functions (Defined only ONCE) ---
 
   async function querySystemState(iface) {
     if (!iface) return;
@@ -37,7 +26,7 @@
       }
       
       if (response.status === 204) {
-        status = { isLoading: false, message: `No active rule managed by NetPilot on ${iface}. System default is likely active.`, isError: false, rule: null };
+        status = { isLoading: false, message: `No active rule managed by NetPilot on ${iface}.`, isError: false, rule: null };
       } else {
         const rule = await response.json();
         status = { isLoading: false, message: `Active rule found on ${iface}.`, isError: false, rule: rule };
@@ -96,6 +85,36 @@
       status = { isLoading: false, message: error.message, isError: true, rule: null };
     }
   }
+
+  // --- NEW: A helper function to parse CAKE's complex options string ---
+  function parseCakeOptions(optionsStr) {
+    if (!optionsStr) return null;
+    const options = optionsStr.split(/\s+/);
+    const details = {
+      'Isolation': [],
+      'DSCP Handling': [],
+      'ACK Filter': [],
+      'Special Features': [],
+      'Timings & Overhead': [],
+    };
+    
+    for (let i = 0; i < options.length; i++) {
+      const opt = options[i];
+      if (opt.includes('isolate')) details['Isolation'].push(opt);
+      else if (opt.includes('diffserv')) details['DSCP Handling'].push(opt);
+      else if (opt.includes('wash')) details['DSCP Handling'].push(opt);
+      else if (opt.includes('ack-filter')) details['ACK Filter'].push(opt);
+      else if (opt.includes('gso')) details['Special Features'].push(opt);
+      else if (opt === 'nat' || opt === 'nonat') details['Isolation'].push(opt);
+      else if (opt === 'rtt' || opt === 'overhead') {
+        details['Timings & Overhead'].push(`${opt} ${options[++i]}`);
+      }
+    }
+    return details;
+  }
+
+  // --- NEW: A computed property that automatically parses cake options ---
+  $: cakeDetails = status.rule?.algorithm === 'cake' ? parseCakeOptions(status.rule.settings.options) : null;
   
   // --- Lifecycle & Reactivity ---
   onMount(async () => {
@@ -124,16 +143,13 @@
 <main class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
   <div class="w-full max-w-2xl bg-white rounded-xl shadow-lg p-8 space-y-6">
     
-    <header class="text-center">
+    <!-- ... (Header and Configuration sections are perfect, no changes needed) ... -->
+     <header class="text-center">
       <h1 class="text-3xl font-bold text-gray-900 flex items-center justify-center gap-2">✈️ NetPilot</h1>
       <p class="text-gray-500 mt-1">Linux QoS Control Panel</p>
     </header>
-
     <div class="border-t"></div>
-
-    <!-- Configuration Section -->
     <section class="space-y-4">
-      <!-- ... (The form is complete and correct) ... -->
       <div>
         <label for="interface-select" class="block text-sm font-medium text-gray-700">Network Interface</label>
         <select id="interface-select" bind:value={selectedInterface} class="mt-1 block w-full pl-3 pr-10 py-2 border-gray-300 rounded-md" disabled={availableInterfaces.length === 0}>
@@ -165,7 +181,7 @@
       {/if}
     </section>
 
-    <!-- Status & Actions Section -->
+    <!-- 【核心进化】Status Section - now with beautiful, structured CAKE details -->
     <section class="bg-gray-50 p-4 rounded-lg min-h-[150px] flex flex-col justify-center">
       <h3 class="text-center font-semibold text-gray-700 mb-3">Current System Status on {selectedInterface || '...'}</h3>
       <div class="text-left text-sm">
@@ -177,11 +193,24 @@
           <div class="space-y-2">
             <div class="flex items-center">
               <span class="w-28 font-semibold text-gray-600">Algorithm:</span>
-              <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">
-                {status.rule.algorithm}
-              </span>
+              <span class="px-2 py-1 bg-green-100 text-green-800 text-xs font-medium rounded-full">{status.rule.algorithm}</span>
             </div>
-            {#if status.rule.settings && Object.keys(status.rule.settings).length > 0}
+
+            <!-- This is the "smart" part -->
+            {#if status.rule.algorithm === 'cake' && cakeDetails}
+              <div class="pt-2">
+                <h4 class="font-semibold text-gray-600 mb-1">Parameters:</h4>
+                <div class="pl-4 border-l-2 border-gray-200 space-y-1">
+                  <div class="flex"><span class="w-24 text-gray-500">Bandwidth:</span><code class="text-indigo-700">{status.rule.settings.bandwidth}</code></div>
+                  {#each Object.entries(cakeDetails) as [category, opts]}
+                    {#if opts.length > 0}
+                      <div class="flex"><span class="w-24 text-gray-500">{category}:</span><code class="text-indigo-700">{opts.join(' ')}</code></div>
+                    {/if}
+                  {/each}
+                </div>
+              </div>
+            {:else if status.rule.settings && Object.keys(status.rule.settings).length > 0}
+              <!-- Fallback for other algorithms like TBF, SFQ -->
               <div class="pt-2">
                 <h4 class="font-semibold text-gray-600 mb-1">Parameters:</h4>
                 <div class="pl-4 border-l-2 border-gray-200 space-y-1">
@@ -201,14 +230,10 @@
       </div>
     </section>
     
+    <!-- ... (Buttons section is perfect, no changes needed) ... -->
     <section class="pt-2 flex flex-col sm:flex-row gap-3">
-      <button on:click={applyRule} class="w-full py-2 px-4 rounded-md font-medium text-white bg-indigo-600 hover:bg-indigo-700" disabled={status.isLoading}>
-        Apply '{selectedAlgorithm}'
-      </button>
-      <button on:click={resetToDefault} class="w-full py-2 px-4 rounded-md font-medium text-white bg-gray-500 hover:bg-gray-600" disabled={status.isLoading || !status.rule}>
-        Reset to Default
-      </button>
+      <button on:click={applyRule} class="w-full py-2 px-4 rounded-md font-medium text-white bg-indigo-600 hover:bg-indigo-700" disabled={status.isLoading}>Apply '{selectedAlgorithm}'</button>
+      <button on:click={resetToDefault} class="w-full py-2 px-4 rounded-md font-medium text-white bg-gray-500 hover:bg-gray-600" disabled={status.isLoading || !status.rule}>Reset to Default</button>
     </section>
-
   </div>
 </main>

@@ -4,19 +4,14 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+
 	"strings"
 )
 
-// We define specific, robust regexes for each algorithm we want to parse in detail.
-// They are now less strict about formatting.
-var (
-	cakeRegex    = regexp.MustCompile(`qdisc cake.*?bandwidth (\d+[KMG]?bit)(.*)`)
-	tbfRegex     = regexp.MustCompile(`qdisc tbf.*?rate (\d+[KMG]?bit) burst (\d+b) lat (\d+m?s)`)
-	sfqRegex     = regexp.MustCompile(`qdisc sfq.*?limit (\d+p) quantum (\d+b) perturb (\d+sec)`)
-	fqCodelRegex = regexp.MustCompile(`qdisc fq_codel.*?limit (\d+p) flows (\d+) quantum (\d+) target (\d+m?s) interval (\d+m?s)`)
-)
+// We define a generic regex to find the primary algorithm.
+var qdiscKindRegex = regexp.MustCompile(`qdisc (\w+)`)
 
-// GetCurrentRule has been rewritten to be a sophisticated, multi-pass parser.
+// GetCurrentRule has been rewritten to be a robust, multi-stage parser.
 func GetCurrentRule(ifaceName string) (string, map[string]interface{}, error) {
 	cmd := exec.Command("tc", "-s", "qdisc", "show", "dev", ifaceName)
 	output, err := cmd.CombinedOutput()
@@ -29,49 +24,71 @@ func GetCurrentRule(ifaceName string) (string, map[string]interface{}, error) {
 		return "", nil, fmt.Errorf("failed to execute tc command: %v, output: %s", err, rawOutput)
 	}
 
+	// Step 1: Find the primary algorithm name. This is our anchor.
+	kindMatches := qdiscKindRegex.FindStringSubmatch(rawOutput)
+	if len(kindMatches) < 2 {
+		// This can happen on some systems where the default qdisc is not shown.
+		// We can infer it's likely a system default.
+		if strings.TrimSpace(rawOutput) == "" {
+			return "pfifo_fast", make(map[string]interface{}), nil
+		}
+		return "unknown", map[string]interface{}{"raw_output": rawOutput}, nil
+	}
+	algorithm := kindMatches[1]
 	settings := make(map[string]interface{})
 
-	// --- Primary Detection: Check for the most specific qdiscs first ---
-	if matches := cakeRegex.FindStringSubmatch(rawOutput); len(matches) > 1 {
-		settings["bandwidth"] = matches[1]
-		settings["options"] = strings.TrimSpace(matches[2])
-		return "cake", settings, nil
-	}
-	if matches := tbfRegex.FindStringSubmatch(rawOutput); len(matches) > 1 {
-		settings["rate"] = matches[1]
-		settings["burst"] = matches[2]
-		settings["latency"] = matches[3]
-		return "tbf", settings, nil
-	}
-	if matches := sfqRegex.FindStringSubmatch(rawOutput); len(matches) > 1 {
-		settings["limit"] = matches[1]
-		settings["quantum"] = matches[2]
-		settings["perturb"] = matches[3]
-		return "sfq", settings, nil
-	}
-
-	// 【核心修正】 FQ Codel is often the most important one to detect correctly.
-	if matches := fqCodelRegex.FindStringSubmatch(rawOutput); len(matches) > 1 {
-		settings["limit"] = matches[1]
-		settings["flows"] = matches[2]
-		settings["quantum"] = matches[3]
-		settings["target"] = matches[4]
-		settings["interval"] = matches[5]
-		if strings.Contains(rawOutput, "qdisc mq") {
-			settings["parent"] = "mq (Multi-queue)"
+	// Step 2: Based on the found algorithm, try to parse its specific parameters.
+	// This makes our parsing robust and handles optional parameters.
+	switch algorithm {
+	case "cake":
+		// Cake's format is consistent
+		if matches := regexp.MustCompile(`bandwidth (\d+[KMG]?bit)(.*)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["bandwidth"] = matches[1]
+			settings["options"] = strings.TrimSpace(matches[2])
 		}
-		return "fq_codel", settings, nil
+	case "tbf":
+		// TBF has required and optional parts
+		if matches := regexp.MustCompile(`rate (\d+[KkMmGg]?bit)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["rate"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`burst (\d+b(?:/\d+)?)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["burst"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`lat ([\d\.]+\w?s)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["latency"] = matches[1]
+		}
+	case "sfq":
+		// SFQ also has optional parts like perturb
+		if matches := regexp.MustCompile(`limit (\d+p)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["limit"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`quantum (\d+b)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["quantum"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`divisor (\d+)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["divisor"] = matches[1]
+		}
+		// The 'perturb' parameter is optional.
+		if matches := regexp.MustCompile(`perturb (\d+sec)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["perturb"] = matches[1]
+		}
+	case "fq_codel":
+		if matches := regexp.MustCompile(`limit (\d+p)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["limit"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`flows (\d+)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["flows"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`quantum (\d+)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["quantum"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`target ([\d\.]+\w?s)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["target"] = matches[1]
+		}
+		if matches := regexp.MustCompile(`interval ([\d\.]+\w?s)`).FindStringSubmatch(rawOutput); len(matches) > 1 {
+			settings["interval"] = matches[1]
+		}
 	}
 
-	// --- Fallback Detection: If no detailed match, check for simple presence ---
-	if strings.Contains(rawOutput, "qdisc mq") {
-		return "mq", map[string]interface{}{"note": "This is a parent qdisc, with child qdiscs (likely fq_codel) active below."}, nil
-	}
-	if strings.Contains(rawOutput, "qdisc pfifo_fast") {
-		return "pfifo_fast", settings, nil
-	}
-
-	// If nothing matched, return the raw output for debugging.
-	settings["raw_output"] = rawOutput
-	return "unknown", settings, nil
+	return algorithm, settings, nil
 }

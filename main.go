@@ -47,7 +47,7 @@ func main() {
 
 	// Setup and run the server.
 	srv := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":8333",
 		Handler: httpServer,
 	}
 
@@ -56,7 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
-	fmt.Println("NetPilot API server is running on http://localhost:8080")
+	fmt.Println("NetPilot API server is running on http://localhost:8333")
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Could not serve: %v", err)
