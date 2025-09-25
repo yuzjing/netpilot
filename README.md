@@ -4,13 +4,15 @@
 
 </div>
 
+
+
+<h1 align="center">✈️ NetPilot</h1>
+
 <br>
 
 <div align="center">
-  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI Screenshot" width="350">
+  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI Screenshot" width="400">
 </div>
-
-<h1 align="center">✈️ NetPilot</h1>
 
 <p align="center">
   A simple, modern Web UI for managing Linux QoS with algorithms like CAKE and fq_codel.
