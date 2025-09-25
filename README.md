@@ -11,7 +11,7 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI Screenshot" width="400">
+  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI Screenshot" width="1000">
 </div>
 
 <p align="center">
