@@ -7,7 +7,7 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI 截图" width="700">
+  <img src="docs/images/netpilot-ui.png" alt="NetPilot UI 截图" width="1000">
 </div>
 
 <h1 align="center">✈️ NetPilot</h1>
